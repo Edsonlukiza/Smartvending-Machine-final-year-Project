@@ -3,16 +3,85 @@
   "author": "Your Name",
   "editor": "wokwi",
   "parts": [
-    { "type": "wokwi-esp32-devkit-v1", "id": "esp32", "top": 0, "left": 0, "attrs": {} },
-    { "type": "wokwi-ili9341", "id": "lcd1", "top": -200, "left": 150, "attrs": {} }
+    {
+      "type": "wokwi-esp32-devkit-v1",
+      "id": "esp32",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-ili9341",
+      "id": "lcd1",
+      "top": 0,
+      "left": 150,
+      "attrs": {}
+    }
   ],
   "connections": [
-    [ "esp32:GND.1", "lcd1:GND", "black", [ "v0" ] ],
-    [ "esp32:3V3", "lcd1:VCC", "red", [ "v0" ] ],
-    [ "esp32:18", "lcd1:SCK", "orange", [ "v0" ] ],
-    [ "esp32:23", "lcd1:MOSI", "blue", [ "v0" ] ],
-    [ "esp32:15", "lcd1:CS", "green", [ "v0" ] ],
-    [ "esp32:2", "lcd1:D/C", "purple", [ "v0" ] ],
-    [ "esp32:4", "lcd1:RST", "white", [ "v0" ] ]
+    [
+      "esp32:GND.1",
+      "lcd1:GND",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp32:3V3",
+      "lcd1:VCC",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp32:3V3",
+      "lcd1:LED",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp32:18",
+      "lcd1:SCK",
+      "orange",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp32:23",
+      "lcd1:MOSI",
+      "blue",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp32:15",
+      "lcd1:CS",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp32:2",
+      "lcd1:D/C",
+      "purple",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "esp32:4",
+      "lcd1:RST",
+      "white",
+      [
+        "v0"
+      ]
+    ]
   ]
 }
