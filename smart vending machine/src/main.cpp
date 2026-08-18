@@ -22,11 +22,19 @@
 #define TOUCH_DO 32
 #define TOUCH_IRQ 27
 
+// XPT2046 calibration values.  These are a safe starting point for a
+// 240x320 display in portrait orientation; see the serial output in
+// readTouchPoint() if your panel needs fine calibration.
+#define TOUCH_X_MIN 200
+#define TOUCH_X_MAX 3900
+#define TOUCH_Y_MIN 200
+#define TOUCH_Y_MAX 3900
+
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST, TFT_MISO);
 WebSocketsClient webSocket;
 
-const char *ssid = "YourWiFiSSID";
-const char *password = "YourWiFiPassword";
+const char *ssid = "SAM123";
+const char *password = "12345678";
 const char *backendHost = "192.168.1.100";
 const uint16_t backendPort = 8000;
 const char *machineId = "vending01";
@@ -63,6 +71,7 @@ int qrSize = 0;
 uint8_t qrData[1024];
 unsigned long lastTouchCheck = 0;
 unsigned long lastWsReconnect = 0;
+bool touchWasDown = false;
 
 String buildBackendUrl(const char *path)
 {
@@ -74,7 +83,8 @@ void setTouchPins()
   pinMode(TOUCH_CS, OUTPUT);
   pinMode(TOUCH_CLK, OUTPUT);
   pinMode(TOUCH_DIN, OUTPUT);
-  pinMode(TOUCH_DO, INPUT);
+  pinMode(TOUCH_DO, INPUT_PULLUP);
+  pinMode(TOUCH_IRQ, INPUT_PULLUP); // XPT2046 IRQ is active LOW while pressed.
   digitalWrite(TOUCH_CS, HIGH);
   digitalWrite(TOUCH_CLK, LOW);
 }
@@ -103,6 +113,51 @@ uint16_t readTouchAxis(uint8_t command)
   uint8_t lsb = softwareSPI_Transfer(0x00);
   digitalWrite(TOUCH_CS, HIGH);
   return ((msb << 5) | (lsb >> 3)) & 0xFFF;
+}
+
+bool readTouchPoint(int &x, int &y)
+{
+  // Read several times and use the middle value. This rejects the noisy first
+  // conversion that many XPT2046-compatible touch controllers produce.
+  uint16_t rawX[5];
+  uint16_t rawY[5];
+  for (int i = 0; i < 5; ++i)
+  {
+    rawX[i] = readTouchAxis(0x90);
+    rawY[i] = readTouchAxis(0xD0);
+  }
+
+  for (int i = 0; i < 5; ++i)
+  {
+    for (int j = i + 1; j < 5; ++j)
+    {
+      if (rawX[j] < rawX[i])
+      {
+        uint16_t t = rawX[i];
+        rawX[i] = rawX[j];
+        rawX[j] = t;
+      }
+      if (rawY[j] < rawY[i])
+      {
+        uint16_t t = rawY[i];
+        rawY[i] = rawY[j];
+        rawY[j] = t;
+      }
+    }
+  }
+
+  const uint16_t filteredX = rawX[2];
+  const uint16_t filteredY = rawY[2];
+  if (filteredX < 50 || filteredX > 4050 ||
+      filteredY < 50 || filteredY > 4050)
+    return false;
+
+  // XPT2046 axes are perpendicular to the portrait TFT axes on this wiring.
+  x = constrain(map(filteredY, 50, 4050, 240, 0), 0, 239);
+  y = constrain(map(filteredX, 50, 4050, 0, 320), 0, 319);
+  Serial.printf("TOUCH raw=(%u,%u), screen=(%d,%d), irq=%d\n",
+                filteredX, filteredY, x, y, digitalRead(TOUCH_IRQ));
+  return true;
 }
 
 int getTouchedItem(int x, int y)
@@ -266,11 +321,13 @@ bool createOrder(int itemIndex)
   int statusCode = http.POST(payload);
   if (statusCode != HTTP_CODE_OK)
   {
+    Serial.printf("Order request failed: %d\n", statusCode);
     http.end();
     return false;
   }
 
   String response = http.getString();
+  Serial.println("Order response: " + response);
   http.end();
 
   StaticJsonDocument<8192> doc;
@@ -300,16 +357,22 @@ bool createOrder(int itemIndex)
 
 void connectWebSocket()
 {
+  statusMessage = "Connecting backend...";
+  updateScreen();
+
   String wsPath = String("/ws/") + machineId;
+  Serial.printf("WebSocket connect to ws://%s:%u%s\n", backendHost, backendPort, wsPath.c_str());
   webSocket.begin(backendHost, backendPort, wsPath.c_str());
   webSocket.onEvent([](WStype_t type, uint8_t *payload, size_t length)
                     {
     switch (type) {
       case WStype_CONNECTED:
+        Serial.println("WebSocket connected");
         statusMessage = "Backend connected";
         updateScreen();
         break;
       case WStype_DISCONNECTED:
+        Serial.println("WebSocket disconnected");
         statusMessage = "Backend disconnected";
         updateScreen();
         break;
@@ -393,10 +456,13 @@ void connectWiFi()
   if (WiFi.status() == WL_CONNECTED)
   {
     statusMessage = "Connected to Wi-Fi";
+    Serial.print("Wi-Fi connected, IP= ");
+    Serial.println(WiFi.localIP());
   }
   else
   {
     statusMessage = "Wi-Fi failed";
+    Serial.println("Wi-Fi connection failed");
   }
   updateScreen();
 }
@@ -407,7 +473,8 @@ void setup()
   Serial2.begin(9600, SERIAL_8N1, 16, 17);
 
   tft.begin();
-  tft.setRotation(1);
+  // The menu and hit areas below use a 240x320 portrait coordinate system.
+  tft.setRotation(0);
   setTouchPins();
 
   connectWiFi();
@@ -434,23 +501,23 @@ void loop()
     }
   }
 
-  if (systemState == STATE_MENU && millis() - lastTouchCheck > 150)
+  if (systemState == STATE_MENU && millis() - lastTouchCheck > 50)
   {
     lastTouchCheck = millis();
-    uint16_t rawX = readTouchAxis(0x90);
-    uint16_t rawY = readTouchAxis(0xD0);
+    int touchX;
+    int touchY;
+    bool touchDown = readTouchPoint(touchX, touchY);
 
-    if (rawX > 200 && rawX < 3900 && rawY > 200 && rawY < 3900)
+    // Act only once per physical press. A held finger must be released before
+    // it can select another item.
+    if (touchDown && !touchWasDown)
     {
-      int touchX = map(rawY, 200, 3900, 240, 0);
-      int touchY = map(rawX, 200, 3900, 0, 320);
       int item = getTouchedItem(touchX, touchY);
       if (item >= 0)
       {
         selectedItem = item;
         statusMessage = String("Selected: ") + products[item].name;
         updateScreen();
-        delay(150);
 
         if (createOrder(item))
         {
@@ -465,5 +532,6 @@ void loop()
         updateScreen();
       }
     }
+    touchWasDown = touchDown;
   }
 }
