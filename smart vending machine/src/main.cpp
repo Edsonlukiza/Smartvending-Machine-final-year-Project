@@ -35,7 +35,7 @@ WebSocketsClient webSocket;
 
 const char *ssid = "SAM123";
 const char *password = "12345678";
-const char *backendHost = "192.168.1.100";
+const char *backendHost = "192.168.1.177";
 const uint16_t backendPort = 8000;
 const char *machineId = "vending01";
 
@@ -308,53 +308,162 @@ void updateScreen()
 bool createOrder(int itemIndex)
 {
   HTTPClient http;
+
   String url = buildBackendUrl("/order");
+
   http.begin(url);
-  http.addHeader("Content-Type", "application/json");
 
-  StaticJsonDocument<256> request;
+  http.addHeader(
+      "Content-Type",
+      "application/json");
+
+  // --------------------------------------------------
+  // Create the order request
+  // --------------------------------------------------
+
+  StaticJsonDocument<512> request;
+
   request["machine_id"] = machineId;
-  request["drink_id"] = products[itemIndex].drinkId;
-  String payload;
-  serializeJson(request, payload);
 
-  int statusCode = http.POST(payload);
-  if (statusCode != HTTP_CODE_OK)
+  JsonArray items = request.createNestedArray("items");
+
+  JsonObject item = items.createNestedObject();
+
+  item["product_id"] =
+      products[itemIndex].drinkId;
+
+  item["quantity"] = 1;
+
+  String payload;
+
+  serializeJson(
+      request,
+      payload);
+
+  Serial.println(
+      "Sending order:");
+
+  Serial.println(
+      payload);
+
+  // --------------------------------------------------
+  // Send request
+  // --------------------------------------------------
+
+  int statusCode =
+      http.POST(payload);
+
+  if (
+      statusCode != HTTP_CODE_OK)
   {
-    Serial.printf("Order request failed: %d\n", statusCode);
+    Serial.printf(
+        "Order request failed: %d\n",
+        statusCode);
+
     http.end();
+
     return false;
   }
 
-  String response = http.getString();
-  Serial.println("Order response: " + response);
+  // --------------------------------------------------
+  // Read backend response
+  // --------------------------------------------------
+
+  String response =
+      http.getString();
+
+  Serial.println(
+      "Order response:");
+
+  Serial.println(
+      response);
+
   http.end();
 
-  StaticJsonDocument<8192> doc;
-  DeserializationError error = deserializeJson(doc, response);
+  // --------------------------------------------------
+  // Parse JSON response
+  // --------------------------------------------------
+
+  StaticJsonDocument<4096> doc;
+
+  DeserializationError error =
+      deserializeJson(
+          doc,
+          response);
+
   if (error)
   {
+    Serial.print(
+        "JSON error: ");
+
+    Serial.println(
+        error.c_str());
+
     return false;
   }
 
-  if (String(doc["status"].as<const char *>()) != "success")
+  // --------------------------------------------------
+  // Check backend status
+  // --------------------------------------------------
+
+  const char *status =
+      doc["status"];
+
+  if (
+      !status ||
+      String(status) != "success")
   {
+    Serial.println(
+        "Backend rejected order.");
+
     return false;
   }
 
-  currentOrderId = String(doc["order_id"].as<const char *>());
-  currentPaymentUrl = String(doc["payment_url"].as<const char *>());
-  qrSize = doc["qr_size"].as<int>();
-  JsonArray qrArray = doc["qr_data"].as<JsonArray>();
-  int total = min((int)qrArray.size(), (int)sizeof(qrData));
-  for (int i = 0; i < total; i++)
-  {
-    qrData[i] = qrArray[i].as<int>();
-  }
+  // --------------------------------------------------
+  // Save order information
+  // --------------------------------------------------
+
+  currentOrderId =
+      String(
+          doc["order_id"].as<const char *>());
+
+  currentPaymentUrl =
+      String(
+          doc["payment_url"].as<const char *>());
+
+  // --------------------------------------------------
+  // Print important information
+  // --------------------------------------------------
+
+  Serial.println(
+      "================================");
+
+  Serial.println(
+      "ORDER CREATED");
+
+  Serial.print(
+      "Order ID: ");
+
+  Serial.println(
+      currentOrderId);
+
+  Serial.print(
+      "Total: ");
+
+  Serial.println(
+      doc["total"].as<int>());
+
+  Serial.print(
+      "Payment URL: ");
+
+  Serial.println(
+      currentPaymentUrl);
+
+  Serial.println(
+      "================================");
 
   return true;
 }
-
 void connectWebSocket()
 {
   statusMessage = "Connecting backend...";
