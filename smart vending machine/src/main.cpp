@@ -154,14 +154,14 @@ bool readTouchPoint(int &x, int &y)
 
   // XPT2046 axes are perpendicular to the portrait TFT axes on this wiring.
   x = constrain(
-      map(filteredY, 50, 4050, 320, 0),
-      0,
-      319);
-
-  y = constrain(
-      map(filteredX, 50, 4050, 0, 240),
+      map(filteredY, TOUCH_Y_MIN, TOUCH_Y_MAX, 240, 0),
       0,
       239);
+
+  y = constrain(
+      map(filteredX, TOUCH_X_MIN, TOUCH_X_MAX, 0, 320),
+      0,
+      319);
   Serial.printf("TOUCH raw=(%u,%u), screen=(%d,%d), irq=%d\n",
                 filteredX, filteredY, x, y, digitalRead(TOUCH_IRQ));
   return true;
@@ -169,15 +169,15 @@ bool readTouchPoint(int &x, int &y)
 
 int getTouchedItem(int x, int y)
 {
-  if (x < 0 || x >= 320 ||
-      y < 0 || y >= 240)
+  if (x < 0 || x >= 240 ||
+      y < 0 || y >= 320)
   {
     return -1;
   }
 
-  const int y0 = 55;
-  const int buttonHeight = 45;
-  const int gap = 10;
+  const int y0 = 60;
+  const int buttonHeight = 60;
+  const int gap = 15;
 
   for (int i = 0;
        i < kProductCount;
@@ -697,7 +697,7 @@ void setup()
 
   tft.begin();
   // The menu and hit areas below use a 240x320 portrait coordinate system.
-  tft.setRotation(3);
+  tft.setRotation(0);
   setTouchPins();
 
   connectWiFi();
