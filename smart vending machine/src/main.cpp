@@ -697,7 +697,7 @@ void setup()
 
   tft.begin();
   // The menu and hit areas below use a 240x320 portrait coordinate system.
-  tft.setRotation(0);
+  tft.setRotation(3);
   setTouchPins();
 
   connectWiFi();
