@@ -33,9 +33,9 @@
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST, TFT_MISO);
 WebSocketsClient webSocket;
 
-const char *ssid = "SAM123";
-const char *password = "12345678";
-const char *backendHost = "192.168.1.177";
+const char *ssid = "Galaxy A04s 14FE";
+const char *password = "dimg3319";
+const char *backendHost = "172.27.221.24";
 const uint16_t backendPort = 8000;
 const char *machineId = "vending01";
 
@@ -311,16 +311,19 @@ bool createOrder(int itemIndex)
 
   String url = buildBackendUrl("/order");
 
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("CREATING ORDER");
+  Serial.print("URL: ");
+  Serial.println(url);
+
   http.begin(url);
 
   http.addHeader(
       "Content-Type",
       "application/json");
 
-  // --------------------------------------------------
-  // Create the order request
-  // --------------------------------------------------
-
+  // Create the request expected by the new FastAPI backend
   StaticJsonDocument<512> request;
 
   request["machine_id"] = machineId;
@@ -340,50 +343,34 @@ bool createOrder(int itemIndex)
       request,
       payload);
 
-  Serial.println(
-      "Sending order:");
+  Serial.print("Request: ");
+  Serial.println(payload);
 
-  Serial.println(
-      payload);
-
-  // --------------------------------------------------
   // Send request
-  // --------------------------------------------------
+  int statusCode = http.POST(payload);
 
-  int statusCode =
-      http.POST(payload);
+  Serial.print("HTTP status: ");
+  Serial.println(statusCode);
 
-  if (
-      statusCode != HTTP_CODE_OK)
+  if (statusCode <= 0)
   {
-    Serial.printf(
-        "Order request failed: %d\n",
-        statusCode);
+    Serial.print("HTTP error: ");
+    Serial.println(
+        http.errorToString(statusCode));
 
     http.end();
 
     return false;
   }
 
-  // --------------------------------------------------
-  // Read backend response
-  // --------------------------------------------------
+  String response = http.getString();
 
-  String response =
-      http.getString();
-
-  Serial.println(
-      "Order response:");
-
-  Serial.println(
-      response);
+  Serial.println("Backend response:");
+  Serial.println(response);
 
   http.end();
 
-  // --------------------------------------------------
-  // Parse JSON response
-  // --------------------------------------------------
-
+  // Parse response
   StaticJsonDocument<4096> doc;
 
   DeserializationError error =
@@ -393,36 +380,27 @@ bool createOrder(int itemIndex)
 
   if (error)
   {
-    Serial.print(
-        "JSON error: ");
-
-    Serial.println(
-        error.c_str());
+    Serial.print("JSON parsing error: ");
+    Serial.println(error.c_str());
 
     return false;
   }
 
-  // --------------------------------------------------
   // Check backend status
-  // --------------------------------------------------
-
   const char *status =
       doc["status"];
 
   if (
-      !status ||
+      status == nullptr ||
       String(status) != "success")
   {
     Serial.println(
-        "Backend rejected order.");
+        "Backend rejected the order.");
 
     return false;
   }
 
-  // --------------------------------------------------
   // Save order information
-  // --------------------------------------------------
-
   currentOrderId =
       String(
           doc["order_id"].as<const char *>());
@@ -431,36 +409,23 @@ bool createOrder(int itemIndex)
       String(
           doc["payment_url"].as<const char *>());
 
-  // --------------------------------------------------
-  // Print important information
-  // --------------------------------------------------
+  int total =
+      doc["total"].as<int>();
 
-  Serial.println(
-      "================================");
+  Serial.println();
+  Serial.println("ORDER CREATED SUCCESSFULLY");
+  Serial.print("Order ID: ");
+  Serial.println(currentOrderId);
 
-  Serial.println(
-      "ORDER CREATED");
+  Serial.print("Total: ");
+  Serial.print(total);
+  Serial.println(" TZS");
 
-  Serial.print(
-      "Order ID: ");
+  Serial.print("Payment URL: ");
+  Serial.println(currentPaymentUrl);
 
-  Serial.println(
-      currentOrderId);
-
-  Serial.print(
-      "Total: ");
-
-  Serial.println(
-      doc["total"].as<int>());
-
-  Serial.print(
-      "Payment URL: ");
-
-  Serial.println(
-      currentPaymentUrl);
-
-  Serial.println(
-      "================================");
+  Serial.println("================================");
+  Serial.println();
 
   return true;
 }
