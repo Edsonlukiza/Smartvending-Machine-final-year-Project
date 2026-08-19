@@ -153,8 +153,15 @@ bool readTouchPoint(int &x, int &y)
     return false;
 
   // XPT2046 axes are perpendicular to the portrait TFT axes on this wiring.
-  x = constrain(map(filteredY, 50, 4050, 240, 0), 0, 239);
-  y = constrain(map(filteredX, 50, 4050, 0, 320), 0, 319);
+  x = constrain(
+      map(filteredY, 50, 4050, 320, 0),
+      0,
+      319);
+
+  y = constrain(
+      map(filteredX, 50, 4050, 0, 240),
+      0,
+      239);
   Serial.printf("TOUCH raw=(%u,%u), screen=(%d,%d), irq=%d\n",
                 filteredX, filteredY, x, y, digitalRead(TOUCH_IRQ));
   return true;
@@ -162,25 +169,35 @@ bool readTouchPoint(int &x, int &y)
 
 int getTouchedItem(int x, int y)
 {
-  if (x < 0 || x > 240 || y < 0 || y > 320)
-    return -1;
-
-  const int y0 = 60;
-  const int buttonHeight = 60;
-  const int gap = 15;
-
-  for (int i = 0; i < kProductCount; i++)
+  if (x < 0 || x >= 320 ||
+      y < 0 || y >= 240)
   {
-    int top = y0 + i * (buttonHeight + gap);
-    int bottom = top + buttonHeight;
-    if (y >= top && y <= bottom)
+    return -1;
+  }
+
+  const int y0 = 55;
+  const int buttonHeight = 45;
+  const int gap = 10;
+
+  for (int i = 0;
+       i < kProductCount;
+       i++)
+  {
+    int top =
+        y0 + i * (buttonHeight + gap);
+
+    int bottom =
+        top + buttonHeight;
+
+    if (y >= top &&
+        y <= bottom)
     {
       return i;
     }
   }
+
   return -1;
 }
-
 void drawMenu()
 {
   tft.fillScreen(ILI9341_BLACK);
@@ -680,7 +697,7 @@ void setup()
 
   tft.begin();
   // The menu and hit areas below use a 240x320 portrait coordinate system.
-  tft.setRotation(0);
+  tft.setRotation(3);
   setTouchPins();
 
   connectWiFi();
