@@ -6,6 +6,7 @@
 #include <WebSocketsClient.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <qrcode.h>
 
 #define TFT_CS 15
 #define TFT_DC 2
@@ -47,8 +48,8 @@ struct Product
 };
 
 Product products[] = {
-    {"Cola", 1, ILI9341_RED},
-    {"Lemon Tea", 2, ILI9341_YELLOW},
+    {"Coca Cola", 1, ILI9341_RED},
+    {"Fanta", 2, ILI9341_YELLOW},
     {"Water", 3, ILI9341_CYAN}};
 
 const int kProductCount = sizeof(products) / sizeof(products[0]);
@@ -67,8 +68,7 @@ int selectedItem = -1;
 String statusMessage = "Touch an item to start";
 String currentOrderId;
 String currentPaymentUrl;
-int qrSize = 0;
-uint8_t qrData[1024];
+int currentTotal = 0;
 unsigned long lastTouchCheck = 0;
 unsigned long lastWsReconnect = 0;
 bool touchWasDown = false;
@@ -215,53 +215,110 @@ void drawMenu()
   tft.print(statusMessage);
 }
 
-void drawPaymentScreen()
+void drawQRCode()
 {
-  tft.fillScreen(ILI9341_BLACK);
-  tft.fillRect(0, 0, 240, 45, ILI9341_BLUE);
-  tft.setTextColor(ILI9341_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(10, 12);
-  tft.print("Payment QR");
-
-  if (qrSize > 0)
+  if (currentPaymentUrl.length() == 0)
   {
-    int pixelSize = 5;
-    int qrWidth = qrSize * pixelSize;
-    int x0 = (240 - qrWidth) / 2;
-    int y0 = 60;
-    tft.fillRect(x0 - 6, y0 - 6, qrWidth + 12, qrWidth + 12, ILI9341_WHITE);
-    for (int row = 0; row < qrSize; row++)
+    return;
+  }
+
+  const uint8_t qrVersion = 6;
+
+  uint8_t qrcodeData[qrcode_getBufferSize(qrVersion)];
+
+  QRCode qrcode;
+
+  qrcode_initText(
+      &qrcode,
+      qrcodeData,
+      qrVersion,
+      ECC_LOW,
+      currentPaymentUrl.c_str());
+
+  int scale = 4;
+
+  int qrPixels =
+      qrcode.size * scale;
+
+  int x0 =
+      (240 - qrPixels) / 2;
+
+  int y0 = 55;
+
+  // White QR background
+  tft.fillRect(
+      x0 - 8,
+      y0 - 8,
+      qrPixels + 16,
+      qrPixels + 16,
+      ILI9341_WHITE);
+
+  for (uint8_t y = 0; y < qrcode.size; y++)
+  {
+    for (uint8_t x = 0; x < qrcode.size; x++)
     {
-      for (int col = 0; col < qrSize; col++)
+      bool module =
+          qrcode_getModule(
+              &qrcode,
+              x,
+              y);
+
+      if (module)
       {
-        bool dark = qrData[row * qrSize + col];
-        uint16_t color = dark ? ILI9341_BLACK : ILI9341_WHITE;
-        tft.fillRect(x0 + col * pixelSize, y0 + row * pixelSize, pixelSize, pixelSize, color);
+        tft.fillRect(
+            x0 + x * scale,
+            y0 + y * scale,
+            scale,
+            scale,
+            ILI9341_BLACK);
       }
     }
   }
-  else
-  {
-    tft.setTextColor(ILI9341_RED);
-    tft.setTextSize(1);
-    tft.setCursor(10, 80);
-    tft.print("Unable to draw QR code.");
-  }
+}
+void drawPaymentScreen()
+{
+  tft.fillScreen(ILI9341_BLACK);
+
+  tft.fillRect(
+      0,
+      0,
+      240,
+      45,
+      ILI9341_BLUE);
 
   tft.setTextColor(ILI9341_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(45, 12);
+  tft.print("SCAN TO PAY");
+
+  // Amount
+  tft.setTextColor(ILI9341_YELLOW);
+  tft.setTextSize(2);
+
+  String amount =
+      String(currentTotal) + " TZS";
+
+  tft.setCursor(75, 25);
+  // We intentionally keep the header simple;
+  // amount will be displayed below the QR.
+
+  // QR
+  drawQRCode();
+
+  // Amount below QR
+  tft.setTextColor(ILI9341_GREEN);
+  tft.setTextSize(2);
+
+  tft.setCursor(70, 225);
+  tft.print(amount);
+
+  // Instruction
+  tft.setTextColor(ILI9341_WHITE);
   tft.setTextSize(1);
-  tft.setCursor(10, 250);
-  tft.print("Order ID: ");
-  tft.setCursor(10, 265);
-  tft.print(currentOrderId);
 
-  tft.setCursor(10, 285);
-  tft.print("Open URL if QR fails:");
-  tft.setCursor(10, 300);
-  tft.print(currentPaymentUrl);
+  tft.setCursor(55, 305);
+  tft.print("Scan with your phone");
 }
-
 void drawStatusScreen()
 {
   tft.fillScreen(ILI9341_BLACK);
@@ -314,16 +371,11 @@ bool createOrder(int itemIndex)
   Serial.println();
   Serial.println("================================");
   Serial.println("CREATING ORDER");
-  Serial.print("URL: ");
-  Serial.println(url);
+  Serial.println("URL: " + url);
 
   http.begin(url);
+  http.addHeader("Content-Type", "application/json");
 
-  http.addHeader(
-      "Content-Type",
-      "application/json");
-
-  // Create the request expected by the new FastAPI backend
   StaticJsonDocument<512> request;
 
   request["machine_id"] = machineId;
@@ -332,34 +384,24 @@ bool createOrder(int itemIndex)
 
   JsonObject item = items.createNestedObject();
 
-  item["product_id"] =
-      products[itemIndex].drinkId;
-
+  item["product_id"] = products[itemIndex].drinkId;
   item["quantity"] = 1;
 
   String payload;
+  serializeJson(request, payload);
 
-  serializeJson(
-      request,
-      payload);
-
-  Serial.print("Request: ");
+  Serial.println("Request:");
   Serial.println(payload);
 
-  // Send request
   int statusCode = http.POST(payload);
 
   Serial.print("HTTP status: ");
   Serial.println(statusCode);
 
-  if (statusCode <= 0)
+  if (statusCode != HTTP_CODE_OK)
   {
-    Serial.print("HTTP error: ");
-    Serial.println(
-        http.errorToString(statusCode));
-
+    Serial.println("Order request failed.");
     http.end();
-
     return false;
   }
 
@@ -370,55 +412,46 @@ bool createOrder(int itemIndex)
 
   http.end();
 
-  // Parse response
   StaticJsonDocument<4096> doc;
 
   DeserializationError error =
-      deserializeJson(
-          doc,
-          response);
+      deserializeJson(doc, response);
 
   if (error)
   {
     Serial.print("JSON parsing error: ");
     Serial.println(error.c_str());
-
     return false;
   }
 
-  // Check backend status
-  const char *status =
-      doc["status"];
+  String backendStatus =
+      doc["status"].as<String>();
 
-  if (
-      status == nullptr ||
-      String(status) != "success")
+  if (backendStatus != "success")
   {
+    Serial.println("Backend rejected order.");
     Serial.println(
-        "Backend rejected the order.");
-
+        doc["message"].as<String>());
     return false;
   }
 
-  // Save order information
   currentOrderId =
-      String(
-          doc["order_id"].as<const char *>());
+      doc["order_id"].as<String>();
 
   currentPaymentUrl =
-      String(
-          doc["payment_url"].as<const char *>());
+      doc["payment_url"].as<String>();
 
-  int total =
+  currentTotal =
       doc["total"].as<int>();
 
   Serial.println();
   Serial.println("ORDER CREATED SUCCESSFULLY");
+
   Serial.print("Order ID: ");
   Serial.println(currentOrderId);
 
   Serial.print("Total: ");
-  Serial.print(total);
+  Serial.print(currentTotal);
   Serial.println(" TZS");
 
   Serial.print("Payment URL: ");
@@ -428,6 +461,105 @@ bool createOrder(int itemIndex)
   Serial.println();
 
   return true;
+}
+void displayQRCode(String url, int total)
+{
+  Serial.println("Generating QR code...");
+  Serial.println(url);
+
+  // QR version 5 gives us enough capacity for our URL
+  const int qrVersion = 5;
+
+  uint8_t qrcodeData[qrcode_getBufferSize(qrVersion)];
+
+  QRCode qrcode;
+
+  qrcode_initText(
+      &qrcode,
+      qrcodeData,
+      qrVersion,
+      ECC_LOW,
+      url.c_str());
+
+  // Clear TFT
+  tft.fillScreen(ILI9341_WHITE);
+
+  // Title
+  tft.setTextColor(ILI9341_BLACK);
+  tft.setTextSize(2);
+
+  tft.setCursor(65, 10);
+  tft.println("SCAN TO PAY");
+
+  // Amount
+  tft.setTextSize(2);
+
+  String amountText =
+      String(total) + " TZS";
+
+  int16_t x1;
+  int16_t y1;
+  uint16_t w;
+  uint16_t h;
+
+  tft.getTextBounds(
+      amountText,
+      0,
+      0,
+      &x1,
+      &y1,
+      &w,
+      &h);
+
+  tft.setCursor(
+      (320 - w) / 2,
+      40);
+
+  tft.println(amountText);
+
+  // QR dimensions
+  int qrSize = qrcode.size;
+
+  // Size of each QR module on the TFT
+  int moduleSize = 5;
+
+  int pixelSize =
+      qrSize * moduleSize;
+
+  // Center QR horizontally
+  int startX =
+      (320 - pixelSize) / 2;
+
+  int startY = 75;
+
+  // Draw QR
+  for (int y = 0; y < qrSize; y++)
+  {
+    for (int x = 0; x < qrSize; x++)
+    {
+      if (qrcode_getModule(
+              &qrcode,
+              x,
+              y))
+      {
+        tft.fillRect(
+            startX + x * moduleSize,
+            startY + y * moduleSize,
+            moduleSize,
+            moduleSize,
+            ILI9341_BLACK);
+      }
+    }
+  }
+
+  // Instruction
+  tft.setTextColor(ILI9341_BLACK);
+  tft.setTextSize(1);
+
+  tft.setCursor(75, 305);
+  tft.println("Scan with your phone");
+
+  Serial.println("QR displayed.");
 }
 void connectWebSocket()
 {
