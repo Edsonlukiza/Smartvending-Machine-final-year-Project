@@ -19,3 +19,7 @@ class OrderItemRequest(BaseModel):
 class OrderCreateRequest(BaseModel):
     machine_id: str
     items: list[OrderItemRequest]
+
+class PaymentRequest(BaseModel):
+    order_id: int
+    phone: str   

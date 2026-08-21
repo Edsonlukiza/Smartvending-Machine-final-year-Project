@@ -7,6 +7,7 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
+from models import Order, OrderItem, Payment
 
 import uvicorn
 import json
